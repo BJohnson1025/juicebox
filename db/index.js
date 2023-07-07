@@ -1,11 +1,12 @@
-const { Client } = require("pg"); // imports the pg module
-const { Query } = require("pg/lib/client");
+const { Client } = require("pg");
 
-const client = new Client("postgres://localhost:5432/juicebox");
-
-/**
- * USER Methods
- */
+const client = new Client({
+  host: "localhost",
+  port: 5432,
+  database: "juicebox",
+  user: "postgres",
+  password: "miskitty1",
+});
 
 async function createUser({ username, password, name, location }) {
   try {
@@ -28,12 +29,10 @@ async function createUser({ username, password, name, location }) {
 }
 
 async function updateUser(id, fields = {}) {
-  // build the set string
   const setString = Object.keys(fields)
     .map((key, index) => `"${key}"=$${index + 1}`)
     .join(", ");
 
-  // return early if this is called without fields
   if (setString.length === 0) {
     return;
   }
@@ -49,25 +48,6 @@ async function updateUser(id, fields = {}) {
       RETURNING *;
     `,
       Object.values(fields)
-    );
-
-    return user;
-  } catch (error) {
-    throw error;
-  }
-}
-
-async function getUserByUsername(username) {
-  try {
-    const {
-      rows: [user],
-    } = await client.query(
-      `
-      SELECT *
-      FROM users
-      WHERE username=$1;
-    `,
-      [username]
     );
 
     return user;
@@ -111,12 +91,7 @@ async function getUserById(userId) {
   }
 }
 
-async function createPost({
-  authorId,
-  title,
-  content,
-  tags = [], // this is new
-}) {
+async function createPost({ authorId, title, content, tags = [] }) {
   try {
     const {
       rows: [post],
@@ -140,9 +115,11 @@ async function createPost({
 async function updatePost(postId, fields = {}) {
   const { tags } = fields;
   delete fields.tags;
+
   const setString = Object.keys(fields)
     .map((key, index) => `"${key}"=$${index + 1}`)
     .join(", ");
+
   try {
     if (setString.length > 0) {
       const updateQuery = `
@@ -151,14 +128,19 @@ async function updatePost(postId, fields = {}) {
         WHERE id=$${Object.keys(fields).length + 1}
         RETURNING *;
       `;
+
       const values = [...Object.values(fields), postId];
+
       await client.query(updateQuery, values);
     }
+
     if (tags === undefined) {
       return await getPostById(postId);
     }
+
     const tagList = await createTags(tags);
     const tagListIdString = tagList.map((tag) => `${tag.id}`).join(", ");
+
     await client.query(
       `
       DELETE FROM post_tags
@@ -167,7 +149,9 @@ async function updatePost(postId, fields = {}) {
     `,
       [postId]
     );
+
     await addTagsToPost(postId, tagList);
+
     return await getPostById(postId);
   } catch (error) {
     throw error;
@@ -293,9 +277,16 @@ async function getPostById(postId) {
       [postId]
     );
 
+    if (!post) {
+      throw {
+        name: "PostNotFoundError",
+        message: "Could not find a post with that postId",
+      };
+    }
+
     const { rows: tags } = await client.query(
       `
-      SELECT tags.*
+      SELECT tags.id, tags.name
       FROM tags
       JOIN post_tags ON tags.id=post_tags."tagId"
       WHERE post_tags."postId"=$1;
@@ -329,7 +320,11 @@ async function getPostsByTagName(tagName) {
   try {
     const { rows: postIds } = await client.query(
       `
-      SELECT * FROM Tags
+      SELECT posts.id
+      FROM posts
+      JOIN post_tags ON posts.id=post_tags."postId"
+      JOIN tags ON tags.id=post_tags."tagId"
+      WHERE tags.name=$1;
     `,
       [tagName]
     );
@@ -348,6 +343,25 @@ async function getAllTags() {
     `);
 
     return rows;
+  } catch (error) {
+    throw error;
+  }
+}
+
+async function getUserByUsername(username) {
+  try {
+    const {
+      rows: [user],
+    } = await client.query(
+      `
+      SELECT *
+      FROM users
+      WHERE username=$1;
+    `,
+      [username]
+    );
+
+    return user;
   } catch (error) {
     throw error;
   }
